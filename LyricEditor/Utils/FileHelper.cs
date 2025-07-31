@@ -29,8 +29,6 @@ namespace LyricEditor.Utils
         /// </summary>
         public static HashSet<string> LyricExtensions { get; } = new HashSet<string> { ".lrc", ".txt" };
 
-        public const string TempFileName = "temp.txt";
-
         /// <summary>
         /// 判断读入文本的编码格式
         /// </summary>

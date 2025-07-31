@@ -10,7 +10,6 @@
     </PropertyGroup>
     <ItemGroup>
         <Resource Include="Icons\**\*.*" />
-        <Resource Include="Icons\LrcMaker.ico" />
     </ItemGroup>
     <ItemGroup>
         <PackageReference Include="Costura.Fody" Version="5.7.0">

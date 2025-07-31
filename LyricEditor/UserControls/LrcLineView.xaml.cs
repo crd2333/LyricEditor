@@ -19,6 +19,8 @@ namespace LyricEditor.UserControls
 
         public TimeSpan TimeOffset { get; set; } = new TimeSpan(0, 0, 0, 0, -150);
         public bool ApproxTime { get; set; } = false;
+        public bool ApplyOffsetToFollowingLines { get; set; } = false;
+        public bool ApplyOffsetToInlineTimestamps { get; set; } = false;
 
         private TimeSpan GetApproxTime(TimeSpan time)
         {
@@ -213,9 +215,36 @@ namespace LyricEditor.UserControls
             if (time < TimeSpan.Zero)
                 time = TimeSpan.Zero;
 
+            // 计算时间差
+            var originalTime = LrcManager.Instance.LrcList[index].LrcTime;
+            var offset = time - originalTime;
+
             // 更新选中行的时间
             LrcManager.Instance.LrcList[index].LrcTime = time;
             ((LrcLine)LrcLinePanel.Items[index]).LrcTime = time;
+
+            // 如果启用，则更新行内时间戳
+            if (ApplyOffsetToInlineTimestamps && offset.HasValue)
+            {
+                var lrcLine = LrcManager.Instance.LrcList[index];
+                lrcLine.LrcText = LrcHelper.ShiftInlineTimestamps(lrcLine.LrcText, offset.Value);
+                ((LrcLine)LrcLinePanel.Items[index]).LrcText = lrcLine.LrcText;
+            }
+
+            // 如果启用，则更新后续歌词行的时间
+            if (ApplyOffsetToFollowingLines && offset.HasValue)
+            {
+                for (int i = index + 1; i < LrcManager.Instance.LrcList.Count; i++)
+                {
+                    if (LrcManager.Instance.LrcList[i].LrcTime.HasValue)
+                    {
+                        var newTime = LrcManager.Instance.LrcList[i].LrcTime.Value.Add(offset.Value);
+                        if (newTime < TimeSpan.Zero) newTime = TimeSpan.Zero;
+                        LrcManager.Instance.LrcList[i].LrcTime = newTime;
+                        ((LrcLine)LrcLinePanel.Items[i]).LrcTime = newTime;
+                    }
+                }
+            }
 
             // 根据是否到达最后一行来设定下一个选中行
             if (!ReachEnd)
@@ -233,7 +262,7 @@ namespace LyricEditor.UserControls
 
         public void ResetAllTime() => LrcManager.Instance.ResetAllTime(LrcLinePanel);
 
-        public void ShiftAllTime(TimeSpan offset) => LrcManager.Instance.ShiftAllTime(LrcLinePanel, offset);
+        public void ShiftAllTime(TimeSpan offset) => LrcManager.Instance.ShiftAllTime(LrcLinePanel, offset, ApplyOffsetToInlineTimestamps);
 
         public void Undo() => LrcManager.Instance.Undo(LrcLinePanel);
 

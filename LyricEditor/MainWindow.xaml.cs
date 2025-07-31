@@ -5,6 +5,8 @@ using System;
 using System.Configuration;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
@@ -51,10 +53,12 @@ namespace LyricEditor
         private LrcLineView LrcLinePanel;
         private LrcTextView LrcTextPanel;
 
+        public string DefaultLyricFolder { get; private set; }
         public TimeSpan ShortTimeShift { get; private set; } = new TimeSpan(0, 0, 2);
         public TimeSpan LongTimeShift { get; private set; } = new TimeSpan(0, 0, 5);
 
-        private string fileName;
+        private string mediaFileName;
+        private string lyricFileName;
 
         #endregion
 
@@ -142,19 +146,46 @@ namespace LyricEditor
 
         private void ImportMedia(string filename)
         {
+            // 1. 设置播放器和标题
+            MediaPlayer.Source = new Uri(filename);
+            MediaPlayer.Stop();
+            var title = TagLibHelper.GetTitle(filename);
+            if (string.IsNullOrWhiteSpace(title))
+                title = Path.GetFileNameWithoutExtension(filename);
+            Title = $"歌词编辑器 {title}";
+
+            // 2. 尝试获取封面
             try
             {
-                MediaPlayer.Source = new Uri(filename);
-                MediaPlayer.Stop();
-                var title = TagLibHelper.GetTitle(filename);
-                if (string.IsNullOrWhiteSpace(title))
-                    title = Path.GetFileNameWithoutExtension(filename);
-                Title = $"歌词编辑器 {title}";
-                Cover.Source = TagLibHelper.GetAlbumArt(filename);
+                var coverImage = TagLibHelper.GetAlbumArt(filename);
+                if (coverImage != null)
+                    Cover.Source = coverImage;
+                else
+                    Cover.Source = ResourceHelper.GetIcon("disc.png");
             }
             catch
             {
                 Cover.Source = ResourceHelper.GetIcon("disc.png");
+            }
+
+            // 3. 尝试自动加载歌词
+            if (!string.IsNullOrEmpty(DefaultLyricFolder) && Directory.Exists(DefaultLyricFolder))
+            {
+                var audioFileName = Path.GetFileNameWithoutExtension(filename);
+                var lyricFiles = Directory.EnumerateFiles(DefaultLyricFolder, "*.*", SearchOption.TopDirectoryOnly)
+                    .Where(s => FileHelper.LyricExtensions.Contains(Path.GetExtension(s).ToLower()));
+
+                foreach (var lyricFile in lyricFiles)
+                {
+                    var lyricFileNameWithoutExt = Path.GetFileNameWithoutExtension(lyricFile);
+                    if (lyricFileNameWithoutExt.IndexOf(audioFileName, StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        LrcManager.Instance.LoadFromFile(lyricFile);
+                        UpdateLrcView();
+                        this.lyricFileName = lyricFile; // 正确地使用完整路径
+                        break; // 找到第一个就停止
+                    }
+                }
             }
         }
 
@@ -169,29 +200,31 @@ namespace LyricEditor
         {
             #region 读取配置
 
-            // 退出时自动缓存
-            AutoSaveTemp.IsChecked = bool.Parse(ConfigurationManager.AppSettings["AutoSaveTemp"]);
             // 导出 UTF-8
-            ExportUTF8.IsChecked = bool.Parse(ConfigurationManager.AppSettings["ExportUTF8"]);
+            ExportUTF8.IsChecked = bool.TryParse(ConfigurationManager.AppSettings["ExportUTF8"], out var exportUtf8) ? exportUtf8 : true;
             // 时间取近似值
             LrcLinePanel.ApproxTime =
                 LrcLine.IsShort =
                 ApproxTime.IsChecked =
-                    bool.Parse(ConfigurationManager.AppSettings["ApproxTime"]);
+                    bool.TryParse(ConfigurationManager.AppSettings["ApproxTime"], out var approxTime) ? approxTime : false;
+            // 应用到后续歌词行
+            LrcLinePanel.ApplyOffsetToFollowingLines =
+                ApplyOffsetToFollowingLines.IsChecked =
+                    bool.TryParse(ConfigurationManager.AppSettings["ApplyOffsetToFollowingLines"], out var applyOffset) ? applyOffset : false;
+            // 应用到行内时间戳
+            LrcLinePanel.ApplyOffsetToInlineTimestamps =
+                ApplyOffsetToInlineTimestamps.IsChecked =
+                    bool.TryParse(ConfigurationManager.AppSettings["ApplyOffsetToInlineTimestamps"], out var applyToInline) ? applyToInline : false;
+            // 默认歌词文件夹
+            DefaultLyricFolder = ConfigurationManager.AppSettings["DefaultLyricFolder"];
+            DefaultLyricFolderText.Text = DefaultLyricFolder;
             // 时间偏差（改变 Text 会触发 TextChanged 事件，下同）
-            TimeOffset.Text = ConfigurationManager.AppSettings["TimeOffset"];
+            TimeOffset.Text = ConfigurationManager.AppSettings["TimeOffset"] ?? "150";
             // 快进快退
-            ShortShift.Text = ConfigurationManager.AppSettings["ShortTimeShift"];
-            LongShift.Text = ConfigurationManager.AppSettings["LongTimeShift"];
+            ShortShift.Text = ConfigurationManager.AppSettings["ShortTimeShift"] ?? "2";
+            LongShift.Text = ConfigurationManager.AppSettings["LongTimeShift"] ?? "5";
 
             #endregion
-
-            // 打开缓存文件
-            if (AutoSaveTemp.IsChecked && File.Exists(FileHelper.TempFileName))
-            {
-                LrcManager.Instance.LoadFromFile(FileHelper.TempFileName);
-                UpdateLrcView();
-            }
         }
 
         /// <summary>
@@ -206,9 +239,11 @@ namespace LyricEditor
                 ConfigurationUserLevel.None
             );
 
-            cfa.AppSettings.Settings["AutoSaveTemp"].Value = AutoSaveTemp.IsChecked.ToString();
             cfa.AppSettings.Settings["ExportUTF8"].Value = ExportUTF8.IsChecked.ToString();
             cfa.AppSettings.Settings["ApproxTime"].Value = LrcLinePanel.ApproxTime.ToString();
+            cfa.AppSettings.Settings["ApplyOffsetToFollowingLines"].Value = LrcLinePanel.ApplyOffsetToFollowingLines.ToString();
+            cfa.AppSettings.Settings["ApplyOffsetToInlineTimestamps"].Value = LrcLinePanel.ApplyOffsetToInlineTimestamps.ToString();
+            cfa.AppSettings.Settings["DefaultLyricFolder"].Value = DefaultLyricFolder;
             cfa.AppSettings.Settings["TimeOffset"].Value = (
                 -LrcLinePanel.TimeOffset.TotalMilliseconds
             ).ToString();
@@ -217,17 +252,6 @@ namespace LyricEditor
             cfa.AppSettings.Settings["LongTimeShift"].Value = LongTimeShift.TotalSeconds.ToString();
 
             cfa.Save();
-
-            // 保存缓存
-            if (AutoSaveTemp.IsChecked)
-            {
-                Encoding encoding = ExportUTF8.IsChecked ? Encoding.UTF8 : Encoding.Default;
-                File.WriteAllText(FileHelper.TempFileName, LrcManager.Instance.ToString(), encoding);
-            }
-            else if (File.Exists(FileHelper.TempFileName))
-            {
-                File.Delete(FileHelper.TempFileName);
-            }
         }
 
         /// <summary>
@@ -241,7 +265,7 @@ namespace LyricEditor
             if (ofd.ShowDialog() == Forms.DialogResult.OK)
             {
                 ImportMedia(ofd.FileName);
-                fileName = ofd.FileName;
+                mediaFileName = ofd.FileName;
             }
         }
 
@@ -257,27 +281,59 @@ namespace LyricEditor
             {
                 LrcManager.Instance.LoadFromFile(ofd.FileName);
                 UpdateLrcView();
-                fileName = ofd.FileName;
+                lyricFileName = ofd.FileName;
             }
         }
 
         /// <summary>
-        /// 将歌词保存为文本文件
+        /// 保存
         /// </summary>
-        private void ExportLyric_Click(object sender, RoutedEventArgs e)
+        private void Save_Click(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrEmpty(lyricFileName))
+            {
+                SaveAs_Click(sender, e);
+            }
+            else
+            {
+                try
+                {
+                    Encoding encoding = ExportUTF8.IsChecked ? Encoding.UTF8 : Encoding.Default;
+                    File.WriteAllText(lyricFileName, LrcManager.Instance.ToString(), encoding);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"保存文件失败: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 另存为
+        /// </summary>
+        private void SaveAs_Click(object sender, RoutedEventArgs e)
         {
             Forms.SaveFileDialog ofd = new Forms.SaveFileDialog();
             ofd.Filter = "歌词文件|*.lrc|文本文件|*.txt|所有文件|*.*";
 
-            if (!string.IsNullOrEmpty(fileName))
+            // 如果加载了媒体文件，则默认以媒体文件名命名
+            if (!string.IsNullOrEmpty(mediaFileName))
             {
-                ofd.FileName = Path.GetFileNameWithoutExtension(fileName);
+                ofd.FileName = Path.GetFileNameWithoutExtension(mediaFileName);
             }
 
             if (ofd.ShowDialog() == Forms.DialogResult.OK)
             {
-                Encoding encoding = ExportUTF8.IsChecked ? Encoding.UTF8 : Encoding.Default;
-                File.WriteAllText(ofd.FileName, LrcManager.Instance.ToString(), encoding);
+                try
+                {
+                    Encoding encoding = ExportUTF8.IsChecked ? Encoding.UTF8 : Encoding.Default;
+                    File.WriteAllText(ofd.FileName, LrcManager.Instance.ToString(), encoding);
+                    lyricFileName = ofd.FileName; // 另存为后，更新当前歌词文件名
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"保存文件失败: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
             }
         }
 
@@ -314,6 +370,12 @@ namespace LyricEditor
                         view.LrcLinePanel.Items.Refresh();
                     }
                     break;
+                case "ApplyOffsetToFollowingLines":
+                    LrcLinePanel.ApplyOffsetToFollowingLines = item.IsChecked;
+                    break;
+                case "ApplyOffsetToInlineTimestamps":
+                    LrcLinePanel.ApplyOffsetToInlineTimestamps = item.IsChecked;
+                    break;
             }
         }
 
@@ -341,13 +403,13 @@ namespace LyricEditor
                 if (FileHelper.MediaExtensions.Contains(ext))
                 {
                     ImportMedia(file);
-                    fileName = file;
+                    mediaFileName = file;
                 }
                 else if (FileHelper.LyricExtensions.Contains(ext))
                 {
                     LrcManager.Instance.LoadFromFile(file);
                     UpdateLrcView();
-                    fileName = file;
+                    lyricFileName = file;
                 }
             }
         }
@@ -419,6 +481,22 @@ namespace LyricEditor
             }
         }
 
+        private void SetDefaultLyricFolder_Click(object sender, RoutedEventArgs e)
+        {
+            using (var dialog = new Forms.FolderBrowserDialog())
+            {
+                if (!string.IsNullOrEmpty(DefaultLyricFolder) && Directory.Exists(DefaultLyricFolder))
+                {
+                    dialog.SelectedPath = DefaultLyricFolder;
+                }
+
+                if (dialog.ShowDialog() == Forms.DialogResult.OK)
+                {
+                    DefaultLyricFolder = dialog.SelectedPath;
+                    DefaultLyricFolderText.Text = DefaultLyricFolder;
+                }
+            }
+        }
         #endregion
 
         #region 工具按钮
@@ -659,6 +737,28 @@ namespace LyricEditor
         #endregion
 
         #region 快捷键
+
+        private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            // 如果焦点在 TextBox 上，则不触发快捷键
+            if (e.OriginalSource is TextBox) return;
+
+            switch (e.Key)
+            {
+                case Key.Left:
+                    TimeShift_Click(ShortShiftLeft, null);
+                    e.Handled = true;
+                    break;
+                case Key.Right:
+                    TimeShift_Click(ShortShiftRight, null);
+                    e.Handled = true;
+                    break;
+                case Key.Space:
+                    PlayButton_Click(this, null);
+                    e.Handled = true;
+                    break;
+            }
+        }
 
         private void SetTimeShortcut_Executed(object sender, ExecutedRoutedEventArgs e) =>
             SetTime_Click(this, e);

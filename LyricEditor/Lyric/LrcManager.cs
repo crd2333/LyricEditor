@@ -232,16 +232,22 @@ namespace LyricEditor.Lyric
         /// <summary>
         /// 整体时间平移
         /// </summary>
-        public void ShiftAllTime(ListView list, TimeSpan offset)
+        public void ShiftAllTime(ListView list, TimeSpan offset, bool applyToInline)
         {
             AddHistory(list);
             foreach (var line in LrcList)
             {
-                if (line.LrcTime is null)
-                    continue;
-                line.LrcTime += offset;
-                if (line.LrcTime < TimeSpan.Zero)
-                    line.LrcTime = TimeSpan.Zero;
+                if (line.LrcTime.HasValue)
+                {
+                    line.LrcTime += offset;
+                    if (line.LrcTime < TimeSpan.Zero)
+                        line.LrcTime = TimeSpan.Zero;
+                }
+
+                if (applyToInline)
+                {
+                    line.LrcText = LrcHelper.ShiftInlineTimestamps(line.LrcText, offset);
+                }
             }
             UpdateLrcList(list);
         }

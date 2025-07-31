@@ -10,14 +10,22 @@ namespace LyricEditor.Utils
         /// </summary>
         public static BitmapImage GetAlbumArt(string filename)
         {
-            var file = TagLib.File.Create(filename);
-            var bin = file.Tag.Pictures[0].Data.Data;
-            BitmapImage image = new BitmapImage();
-            image.BeginInit();
-            image.StreamSource = new MemoryStream(bin);
-            image.EndInit();
-
-            return image;
+            try
+            {
+                var file = TagLib.File.Create(filename);
+                if (file.Tag.Pictures.Length > 0)
+                {
+                    var bin = file.Tag.Pictures[0].Data.Data;
+                    BitmapImage image = new BitmapImage();
+                    image.BeginInit();
+                    image.StreamSource = new MemoryStream(bin);
+                    image.EndInit();
+                    return image;
+                }
+            }
+            catch { } // 忽略所有TagLib可能抛出的异常
+            
+            return null;
         }
 
         /// <summary>

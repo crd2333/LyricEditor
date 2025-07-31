@@ -18,6 +18,7 @@
         Drop="Window_Drop"
         DragEnter="Window_DragEnter"
         AllowDrop="True"
+        PreviewKeyDown="Window_PreviewKeyDown"
         mc:Ignorable="d">
     <Window.Resources>
         <ResourceDictionary>
@@ -79,7 +80,8 @@
                     <MenuItem Header="导入歌词文件" Click="ImportLyric_Click" />
                     <MenuItem Header="来自剪贴板" Click="ImportLyricFromClipboard_Click" />
                 </MenuItem>
-                <MenuItem Header="保存" Click="ExportLyric_Click" />
+                <MenuItem Header="保存" Click="Save_Click" />
+                <MenuItem Header="另存为..." Click="SaveAs_Click" />
                 <MenuItem Header="复制到剪贴板" Click="ExportLyricToClipboard_Click" />
                 <Separator />
                 <MenuItem Header="首选项" Style="{StaticResource SubMenuItemHeaderStyle}">
@@ -88,12 +90,6 @@
                             <Setter Property="VerticalContentAlignment" Value="Center" />
                         </Style>
                     </MenuItem.Resources>
-                    <MenuItem Name="AutoSaveTemp"
-                              Header="退出时自动缓存"
-                              IsCheckable="True"
-                              IsChecked="True"
-                              StaysOpenOnClick="True"
-                              ToolTip="退出程序时如果有歌词文本，则自动在程序目录建立缓存文件 temp.txt" />
                     <MenuItem Name="ExportUTF8"
                               Header="使用 UTF-8 字符编码"
                               IsCheckable="True"
@@ -108,6 +104,30 @@
                               Checked="Settings_Checked"
                               Unchecked="Settings_Checked"
                               ToolTip="如果勾选，则会在更新歌词行时间时截取毫秒数的前两位" />
+                    <MenuItem Name="ApplyOffsetToFollowingLines"
+                              Header="将偏差值应用到之后的歌词行"
+                              IsCheckable="True"
+                              IsChecked="False"
+                              StaysOpenOnClick="True"
+                              Checked="Settings_Checked"
+                              Unchecked="Settings_Checked"
+                              ToolTip="如果勾选，则在设定单行时间时，将时间差应用到之后的所有歌词行" />
+                    <MenuItem Name="ApplyOffsetToInlineTimestamps"
+                              Header="偏移应用至行内时间戳"
+                              IsCheckable="True"
+                              IsChecked="False"
+                              StaysOpenOnClick="True"
+                              Checked="Settings_Checked"
+                              Unchecked="Settings_Checked"
+                              ToolTip="如果勾选，则在调整时间时，一并调整歌词文本内部时间戳" />
+                    <MenuItem Click="SetDefaultLyricFolder_Click">
+                        <MenuItem.Header>
+                            <DockPanel>
+                                <TextBlock Text="默认歌词文件夹: " />
+                                <TextBlock Name="DefaultLyricFolderText" TextTrimming="CharacterEllipsis" ToolTip="点击设置" />
+                            </DockPanel>
+                        </MenuItem.Header>
+                    </MenuItem>
                     <MenuItem StaysOpenOnClick="True" ToolTip="用来补偿因为反应速度而导致的时间戳的偏差">
                         <MenuItem.Header>
                             <StackPanel Margin="0,0,-12,0" Orientation="Horizontal">
@@ -216,12 +236,12 @@
                             </Style>
                         </Grid.Resources>
 
-                        <Button Name="ShortShiftLeft" ToolTip="小幅度快退" Click="TimeShift_Click">
+                        <Button Name="ShortShiftLeft" ToolTip="小幅度快退（←）" Click="TimeShift_Click">
                             <Image Margin="-2,0,0,0" Source="Icons/MediaButtonIcons/NavigateLeft.png" />
                         </Button>
                         <Button Name="PlayButton"
                                 Grid.Column="1"
-                                ToolTip="播放/暂停"
+                                ToolTip="播放/暂停（空格）"
                                 Click="PlayButton_Click">
                             <Button.Tag>
                                 <sys:Boolean>False</sys:Boolean>
@@ -243,7 +263,7 @@
                         </Button>
                         <Button Name="ShortShiftRight"
                                 Grid.Column="2"
-                                ToolTip="小幅度快进"
+                                ToolTip="小幅度快进（→）"
                                 Click="TimeShift_Click">
                             <Image Margin="2,0,0,0" Source="Icons/MediaButtonIcons/NavigateRight.png" />
                         </Button>
@@ -329,22 +349,25 @@
                          Foreground="LightBlue"
                          Background="White"
                          Maximum="1" />
-            <TextBlock Name="CurrentTimeText"
-                       Margin="5,0,0,0"
-                       HorizontalAlignment="Left"
-                       d:Text="00:00"
-                       FontWeight="Normal" />
-            <TextBlock Name="TotalTimeText"
-                       Margin="0,0,5,0"
-                       HorizontalAlignment="Right"
-                       d:Text="01:00"
-                       FontWeight="Normal" />
-            <TextBlock Name="CurrentLrcText"
-                       HorizontalAlignment="Center"
-                       VerticalAlignment="Center"
-                       d:Text="一条大河波浪宽"
-                       Foreground="#FF9E4848"
-                       TextDecorations="{x:Null}" />
+            <DockPanel>
+                <TextBlock Name="CurrentTimeText"
+                           DockPanel.Dock="Left"
+                           Margin="5,0,0,0"
+                           d:Text="00:00"
+                           FontWeight="Normal" />
+                <TextBlock Name="TotalTimeText"
+                           DockPanel.Dock="Right"
+                           Margin="0,0,5,0"
+                           d:Text="01:00"
+                           FontWeight="Normal" />
+                <TextBlock Name="CurrentLrcText"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           d:Text="一条大河波浪宽"
+                           Foreground="#FF9E4848"
+                           TextDecorations="{x:Null}"
+                           TextTrimming="CharacterEllipsis" />
+            </DockPanel>
             <Border Name="TimeClickBar"
                     BorderThickness="1"
                     BorderBrush="LightGray"

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Text.RegularExpressions;
 
 namespace LyricEditor.Lyric
 {
@@ -46,6 +47,33 @@ namespace LyricEditor.Lyric
             }
             else
                 return $"{ts.Minutes:00}:{ts.Seconds:00}.{ts.Milliseconds:000}";
+        }
+
+        /// <summary>
+        /// 平移歌词文本中 <> 包含的时间
+        /// </summary>
+        public static string ShiftInlineTimestamps(string text, TimeSpan offset)
+        {
+            var regex = new Regex(@"<(\d{1,2}:\d{2}\.\d{2,3})>");
+            return regex.Replace(text, match =>
+            {
+                var timeStr = match.Groups[1].Value;
+                if (TryParseTimeSpan(timeStr, out TimeSpan originalTime))
+                {
+                    var newTime = originalTime.Add(offset);
+                    if (newTime < TimeSpan.Zero)
+                    {
+                        newTime = TimeSpan.Zero;
+                    }
+
+                    // 自动检测并保持原始精度
+                    var parts = timeStr.Split('.');
+                    bool isShortFormat = (parts.Length == 2 && parts[1].Length == 2);
+
+                    return $"<{newTime.ToShortString(isShortFormat)}>";
+                }
+                return match.Value;
+            });
         }
     }
 }
