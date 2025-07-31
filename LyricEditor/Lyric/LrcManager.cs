@@ -55,12 +55,17 @@ namespace LyricEditor.Lyric
             {
                 foreach (var line in lines)
                 {
+                    if (string.IsNullOrWhiteSpace(line))
+                    {
+                        LrcList.Add(LrcLine.Empty);
+                        continue;
+                    }
                     // 即便是不包含时间信息的歌词文本，也可能出现歌词信息
                     if (reLrcInfo.IsMatch(line))
                     {
                         LrcList.Add(new LrcLine(null, line.Trim('[', ']')));
                     }
-                    // 否则将会为当前歌词行添加空白的时间标记，即便当前行是空行
+                    // 否则将会为当前歌词行添加空白的时间标记
                     else
                         LrcList.Add(new LrcLine(0, line));
                 }
@@ -76,9 +81,10 @@ namespace LyricEditor.Lyric
                 {
                     foreach (var line in lines)
                     {
-                        // 在确认文本中包含时间标记的情况下，会忽略所有空行
+                        // 在确认文本中包含时间标记的情况下，如果是空行则会进行记录
                         if (string.IsNullOrWhiteSpace(line))
                         {
+                            LrcList.Add(LrcLine.Empty);
                             lineNumber++;
                             continue;
                         }
